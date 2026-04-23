@@ -188,13 +188,22 @@
 
       .sep { display: none; }
 
-      .ctrl { order: 1; }
+      /* Controls go to row 2 */
+      .ctrl { order: 1; flex-shrink: 1; }
 
-      /* Instrument select stretches on row 2 */
+      /* Hide text labels — self-evident on mobile, and they caused overlap
+         because width:100% on the select was relative to the full ctrl width
+         (label + select), making the two together overflow the row */
+      .ctrl label { display: none; }
+
+      /* Instrument select fills row 2 — safe now that label is hidden */
       #ctrl-instrument { flex: 1; min-width: 0; }
       #ctrl-instrument select { width: 100%; min-width: 0; }
 
-      /* Prevent iOS input zoom */
+      /* Bars input stays compact */
+      #ctrl-bars { flex-shrink: 0; }
+
+      /* Prevent iOS input zoom (inputs < 16px trigger auto-zoom) */
       select, input[type="number"] { font-size: 16px; min-height: 40px; }
 
       /* Tabs + panels */
@@ -256,7 +265,7 @@
   <div class="sep"></div>
   <div class="ctrl" id="ctrl-instrument">
     <label for="transpose-select">Instrument</label>
-    <select id="transpose-select">
+    <select id="transpose-select" aria-label="Instrument">
       <option value="0">Concert (C)</option>
       <option value="0">Violin</option>
       <option value="2">B♭ — Trumpet, Clarinet, Sop./Ten. Sax</option>
@@ -272,7 +281,7 @@
   <div class="sep"></div>
   <div class="ctrl" id="ctrl-bars">
     <label for="bars-input">Bars / line</label>
-    <input type="number" id="bars-input" value="4" min="1" max="20" style="width:54px">
+    <input type="number" id="bars-input" aria-label="Bars per line" value="4" min="1" max="20" style="width:54px">
   </div>
   <button id="export-btn">Export PDF</button>
 </div>
