@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Score Editor</title>
+  <script src="https://cdn.jsdelivr.net/npm/abcjs@6.4.4/dist/abcjs-basic-min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      background: #e4e4e4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      color: #222;
+    }
+
+    /* ── Toolbar ─────────────────────────────────────────── */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 7px 14px;
+      background: #fff;
+      border-bottom: 1px solid #d4d4d4;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    #toolbar h1 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #111;
+      margin-right: 4px;
+    }
+
+    .sep {
+      width: 1px;
+      height: 20px;
+      background: #ddd;
+      flex-shrink: 0;
+    }
+
+    .ctrl {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ctrl label {
+      color: #777;
+      white-space: nowrap;
+    }
+
+    select, input[type="number"] {
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      padding: 3px 6px;
+      font-size: 12px;
+      background: #fff;
+      color: #222;
+    }
+
+    select:focus, input:focus { outline: 2px solid #bbb; outline-offset: 1px; }
+
+    #export-btn {
+      margin-left: auto;
+      padding: 5px 14px;
+      background: #1a1a1a;
+      color: #fff;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+    }
+
+    #export-btn:hover { background: #333; }
+
+    /* ── Main layout ──────────────────────────────────────── */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Editor panel ─────────────────────────────────────── */
+    #editor-panel {
+      width: 240px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      border-right: 1px solid #d4d4d4;
+    }
+
+    #editor-label {
+      padding: 6px 12px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #aaa;
+      border-bottom: 1px solid #eee;
+      flex-shrink: 0;
+    }
+
+    #abc-input {
+      flex: 1;
+      resize: none;
+      border: none;
+      padding: 12px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+      line-height: 1.65;
+      background: #fff;
+      color: #222;
+      outline: none;
+    }
+
+    /* ── Score panel ──────────────────────────────────────── */
+    #score-panel {
+      flex: 1;
+      overflow: auto;
+      background: #e4e4e4;
+      padding: 28px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    }
+
+    /* A4 page preview */
+    #score-page {
+      background: #fff;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.18);
+      padding: 18mm 15mm;
+      width: 210mm;
+      min-height: 297mm;
+      flex-shrink: 0;
+    }
+
+    #score-output svg {
+      width: 100% !important;
+      height: auto !important;
+    }
+
+    /* ── Print / PDF ──────────────────────────────────────── */
+    @media print {
+      @page { size: A4 portrait; margin: 15mm; }
+
+      body    { background: #fff; height: auto; }
+      #toolbar, #editor-panel { display: none !important; }
+      #main   { display: block; overflow: visible; }
+
+      #score-panel {
+        background: none;
+        padding: 0;
+        overflow: visible;
+        display: block;
+      }
+
+      #score-page {
+        box-shadow: none;
+        padding: 0;
+        width: 100%;
+        min-height: 0;
+      }
+
+      #score-output svg { width: 100% !important; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>Score Editor</h1>
+
+  <div class="sep"></div>
+
+  <div class="ctrl">
+    <label for="transpose-select">Instrument</label>
+    <select id="transpose-select">
+      <option value="0">Concert (C)</option>
+      <option value="2">B♭ — Trumpet, Clarinet, Sop./Ten. Sax</option>
+      <option value="9">E♭ — Alto / Bari Sax</option>
+      <option value="7">F — French Horn</option>
+      <option value="custom">Custom…</option>
+    </select>
+  </div>
+
+  <div class="ctrl" id="custom-ctrl" style="display:none">
+    <label for="custom-semi">Semitones</label>
+    <input type="number" id="custom-semi" value="0" min="-24" max="24" style="width:54px">
+  </div>
+
+  <div class="sep"></div>
+
+  <div class="ctrl">
+    <label for="bars-input">Bars / line</label>
+    <input type="number" id="bars-input" value="4" min="1" max="20" style="width:48px">
+  </div>
+
+  <button id="export-btn">Export PDF</button>
+</div>
+
+<div id="main">
+  <div id="editor-panel">
+    <div id="editor-label">ABC Notation</div>
+    <textarea id="abc-input" spellcheck="false">X:1
+T:Sample Score
+C:Composer
+M:4/4
+L:1/8
+Q:1/4=120
+K:C
+|:CDEF GABc|dedB AGFE|DCDE FGAB|cBAG FEDC:|
+|:c2ec B2dB|A2FA G2EG|FGAB cdef|gedB c3B:|
+|:AGFE DCBA,|B,CDE FGAB|cBAG FEDC|DEFD C4:|</textarea>
+  </div>
+
+  <div id="score-panel">
+    <div id="score-page">
+      <div id="score-output"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const abcInput    = document.getElementById('abc-input');
+  const transpSel   = document.getElementById('transpose-select');
+  const customCtrl  = document.getElementById('custom-ctrl');
+  const customSemi  = document.getElementById('custom-semi');
+  const barsInput   = document.getElementById('bars-input');
+  const exportBtn   = document.getElementById('export-btn');
+
+  function transpose() {
+    return transpSel.value === 'custom'
+      ? (parseInt(customSemi.value) || 0)
+      : parseInt(transpSel.value);
+  }
+
+  function render() {
+    ABCJS.renderAbc('score-output', abcInput.value, {
+      responsive:      'resize',
+      visualTranspose: transpose(),
+      barsperstaff:    parseInt(barsInput.value) || 4,
+      paddingleft:     0,
+      paddingright:    0,
+      paddingtop:      0,
+    });
+  }
+
+  transpSel.addEventListener('change', () => {
+    customCtrl.style.display = transpSel.value === 'custom' ? 'flex' : 'none';
+    render();
+  });
+
+  customSemi.addEventListener('input', render);
+  barsInput.addEventListener('input', render);
+  abcInput.addEventListener('input', render);
+
+  exportBtn.addEventListener('click', () => window.print());
+
+  render();
+</script>
+
+</body>
+</html>
