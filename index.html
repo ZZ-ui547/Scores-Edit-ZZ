@@ -400,7 +400,14 @@ K:C
 
   function buildPrintPages() {
     const output = document.getElementById('score-output');
-    document.getElementById('print-pages')?.remove();
+
+    // If already paginated (e.g. Export button ran, then beforeprint fires too)
+    // just leave the existing pages in place.
+    if (document.getElementById('print-pages')) return;
+
+    // Restore any SVG hidden by a previous call that wasn't cleaned up.
+    const prevHidden = output.querySelector('svg[data-print-hidden]');
+    if (prevHidden) { prevHidden.style.display = ''; delete prevHidden.dataset.printHidden; }
 
     // On mobile the score panel may be hidden (Editor tab active).
     // getBBox() returns zeros on hidden elements, so temporarily reveal it.
