@@ -339,95 +339,145 @@ K:C
   }
 
   // ── PDF pagination ──────────────────────────────────────
-  // Splits the rendered SVG into page-height slices so the
-  // browser print engine never cuts through a staff row.
+  // Finds staff row boundaries by analysing the vertical extents of all
+  // rendered SVG elements. This avoids relying on abcjs internal class
+  // names (which vary across versions) and works on any SVG output.
+  function findStaffRows(svg) {
+    const vb = svg.viewBox.baseVal;
+
+    // Try known abcjs class names first (fast path)
+    for (const sel of ['.abcjs-staff-group', '.abcjs-row', '.abcjs-system', '.abcjs-staff']) {
+      const els = [...svg.querySelectorAll(sel)].filter(el => {
+        try { const b = el.getBBox(); return b.width > vb.width * 0.25 && b.height > 5; }
+        catch { return false; }
+      });
+      if (els.length >= 2) {
+        return els
+          .map(el => { const b = el.getBBox(); return { top: b.y, bottom: b.y + b.height }; })
+          .sort((a, b) => a.top - b.top);
+      }
+    }
+
+    // Fallback: collect all leaf-element bboxes, merge them into bands,
+    // then split bands at large vertical gaps (= inter-row whitespace).
+    const intervals = [];
+    svg.querySelectorAll('path, rect, use, text, line, ellipse, circle, polygon').forEach(el => {
+      try {
+        const b = el.getBBox();
+        if (b.height > 0.5 && b.width > 0.5) intervals.push([b.y, b.y + b.height]);
+      } catch {}
+    });
+
+    if (!intervals.length) return [];
+    intervals.sort((a, b) => a[0] - b[0]);
+
+    // Merge intervals that are within 3 SVG units of each other
+    const merged = [[...intervals[0]]];
+    for (const [s, e] of intervals.slice(1)) {
+      const last = merged[merged.length - 1];
+      if (s <= last[1] + 3) { last[1] = Math.max(last[1], e); }
+      else { merged.push([s, e]); }
+    }
+
+    // A gap larger than 2.5% of total SVG height marks a row boundary
+    const minGap = Math.max(vb.height * 0.025, 15);
+    const rows = [];
+    let rowTop = 0, rowBottom = merged[0][1];
+
+    for (let i = 1; i < merged.length; i++) {
+      if (merged[i][0] - merged[i - 1][1] >= minGap) {
+        rows.push({ top: rowTop, bottom: rowBottom });
+        rowTop = merged[i][0];
+      }
+      rowBottom = merged[i][1];
+    }
+    rows.push({ top: rowTop, bottom: rowBottom });
+
+    // Extend first row's top to 0 to include title/header above staves
+    if (rows.length) rows[0].top = 0;
+    return rows;
+  }
+
   function buildPrintPages() {
     const output = document.getElementById('score-output');
     document.getElementById('print-pages')?.remove();
 
-    const svg = output.querySelector('svg');
-    if (!svg) return;
-
-    const vb = svg.viewBox.baseVal;
-    if (!vb || vb.width === 0) return;
-
-    // A4 with 15mm margins → 180 mm × 267 mm usable area.
-    // SVG fills the 180 mm width, so page height in SVG units:
-    const pageH = vb.width * (267 / 180);
-
-    // Find staff rows – try the class names abcjs 6.x uses
-    let rows = [];
-    for (const sel of ['.abcjs-staff-group', '.abcjs-row', '.abcjs-system']) {
-      rows = [...svg.querySelectorAll(sel)];
-      if (rows.length) break;
+    // On mobile the score panel may be hidden (Editor tab active).
+    // getBBox() returns zeros on hidden elements, so temporarily reveal it.
+    const scorePanel = document.getElementById('score-panel');
+    const panelHidden = window.getComputedStyle(scorePanel).display === 'none';
+    if (panelHidden) {
+      scorePanel.style.display = 'flex';
+      scorePanel.style.visibility = 'hidden';
     }
-    if (!rows.length) return;
 
-    // Measure each row's vertical extent
-    const measured = rows.map(r => {
-      const b = r.getBBox();
-      return { top: b.y, bottom: b.y + b.height };
-    }).filter(m => m.bottom > m.top);
+    try {
+      const svg = output.querySelector('svg');
+      if (!svg) return;
 
-    if (!measured.length) return;
-    if (measured.at(-1).bottom <= pageH) return; // fits on one page
+      const vb = svg.viewBox.baseVal;
+      if (!vb || vb.width === 0) return;
 
-    // Group rows into pages
-    const pages = [];
-    let start = 0, batch = [];
+      // A4 with 15mm margins → 180 mm × 267 mm usable.
+      // SVG fills the 180 mm width, so page height in SVG units:
+      const pageH = vb.width * (267 / 180);
 
-    for (const row of measured) {
-      if (row.bottom - start > pageH && batch.length) {
-        pages.push({ startY: start, endY: batch.at(-1).bottom });
-        start = row.top;
-        batch = [row];
-      } else {
-        batch.push(row);
+      const rows = findStaffRows(svg);
+      if (!rows.length || rows.at(-1).bottom <= pageH) return;
+
+      // Group rows into pages
+      const pages = [];
+      let start = 0, batch = [];
+      for (const row of rows) {
+        if (row.bottom - start > pageH && batch.length) {
+          pages.push({ startY: start, endY: batch.at(-1).bottom });
+          start = row.top;
+          batch = [row];
+        } else {
+          batch.push(row);
+        }
+      }
+      if (batch.length) pages.push({ startY: start, endY: batch.at(-1).bottom });
+      if (pages.length < 2) return;
+
+      svg.dataset.printHidden = '1';
+      svg.style.display = 'none';
+
+      const svgHTML   = svg.innerHTML;
+      const container = document.createElement('div');
+      container.id    = 'print-pages';
+
+      pages.forEach((page, i) => {
+        const clipY = i === 0 ? 0 : page.startY;
+        const clipH = page.endY - clipY;
+
+        const div = document.createElement('div');
+        div.className = 'print-page';
+        if (i > 0) div.style.cssText = 'break-before:page;page-break-before:always';
+
+        const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        s.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        s.setAttribute('viewBox', `${vb.x} ${clipY} ${vb.width} ${clipH}`);
+        s.style.cssText = 'width:100%;height:auto;display:block';
+        s.innerHTML = svgHTML;
+
+        div.appendChild(s);
+        container.appendChild(div);
+      });
+
+      output.appendChild(container);
+    } finally {
+      if (panelHidden) {
+        scorePanel.style.display = '';
+        scorePanel.style.visibility = '';
       }
     }
-    if (batch.length) pages.push({ startY: start, endY: batch.at(-1).bottom });
-
-    if (pages.length < 2) return;
-
-    // Hide the original SVG for print; we'll restore it in afterprint
-    svg.dataset.printHidden = '1';
-    svg.style.display = 'none';
-
-    const svgHTML    = svg.innerHTML;
-    const container  = document.createElement('div');
-    container.id     = 'print-pages';
-
-    pages.forEach((page, i) => {
-      // Page 1 starts from Y=0 to capture the title/header above the staves
-      const clipY = i === 0 ? 0 : page.startY;
-      const clipH = page.endY - clipY;
-
-      const div = document.createElement('div');
-      div.className = 'print-page';
-      if (i > 0) {
-        div.style.cssText = 'break-before:page;page-break-before:always';
-      }
-
-      const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      s.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      s.setAttribute('viewBox', `${vb.x} ${clipY} ${vb.width} ${clipH}`);
-      s.style.cssText = 'width:100%;height:auto;display:block';
-      s.innerHTML = svgHTML;
-
-      div.appendChild(s);
-      container.appendChild(div);
-    });
-
-    output.appendChild(container);
   }
 
   function restoreAfterPrint() {
     document.getElementById('print-pages')?.remove();
     const hidden = document.querySelector('#score-output svg[data-print-hidden]');
-    if (hidden) {
-      hidden.style.display = '';
-      delete hidden.dataset.printHidden;
-    }
+    if (hidden) { hidden.style.display = ''; delete hidden.dataset.printHidden; }
   }
 
   exportBtn.addEventListener('click', () => {
@@ -435,7 +485,6 @@ K:C
     window.print();
   });
 
-  // Also handle Ctrl+P / system print
   window.addEventListener('beforeprint', buildPrintPages);
   window.addEventListener('afterprint',  restoreAfterPrint);
 
