@@ -27,11 +27,7 @@
       background: #fff;
       border-bottom: 1px solid #d4d4d4;
       flex-shrink: 0;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: none;
     }
-    #toolbar::-webkit-scrollbar { display: none; }
 
     #toolbar h1 {
       font-size: 13px;
@@ -179,6 +175,29 @@
 
     /* ── Mobile ───────────────────────────────────────────── */
     @media (max-width: 640px) {
+      /* Toolbar: two rows */
+      #toolbar {
+        flex-wrap: wrap;
+        gap: 8px 10px;
+        padding: 8px 12px;
+      }
+
+      #toolbar h1 { flex: 1; order: 0; }
+
+      #export-btn { order: 0; min-height: 40px; font-size: 14px; padding: 8px 14px; }
+
+      .sep { display: none; }
+
+      .ctrl { order: 1; }
+
+      /* Instrument select stretches on row 2 */
+      #ctrl-instrument { flex: 1; min-width: 0; }
+      #ctrl-instrument select { width: 100%; min-width: 0; }
+
+      /* Prevent iOS input zoom */
+      select, input[type="number"] { font-size: 16px; min-height: 40px; }
+
+      /* Tabs + panels */
       #tab-bar { display: flex; }
 
       #main { position: relative; }
@@ -191,15 +210,8 @@
       }
       #editor-panel.active, #score-panel.active { display: flex; }
 
-      #editor-panel {
-        border-right: none;
-        flex-direction: column;
-      }
-
-      #abc-input {
-        font-size: 14px;
-        padding: 14px;
-      }
+      #editor-panel { border-right: none; flex-direction: column; }
+      #abc-input { font-size: 14px; padding: 14px; }
 
       #score-panel {
         background: #fff;
@@ -209,24 +221,7 @@
         align-items: stretch;
       }
 
-      #score-page {
-        box-shadow: none;
-        padding: 0;
-        width: 100%;
-        min-height: 0;
-      }
-
-      /* Prevent iOS input zoom */
-      select, input[type="number"] {
-        font-size: 16px;
-        min-height: 40px;
-      }
-
-      #export-btn {
-        font-size: 14px;
-        min-height: 40px;
-        padding: 8px 16px;
-      }
+      #score-page { box-shadow: none; padding: 0; width: 100%; min-height: 0; }
     }
 
     /* ── Print / PDF ──────────────────────────────────────── */
@@ -246,14 +241,11 @@
         width: 100%;
       }
 
-      #score-page {
-        box-shadow: none;
-        padding: 0;
-        width: 100%;
-        min-height: 0;
-      }
+      #score-page { box-shadow: none; padding: 0; width: 100%; min-height: 0; }
 
       #score-output svg { width: 100% !important; }
+
+      .print-page { break-inside: avoid; }
     }
   </style>
 </head>
@@ -262,7 +254,7 @@
 <div id="toolbar">
   <h1>Score Editor</h1>
   <div class="sep"></div>
-  <div class="ctrl">
+  <div class="ctrl" id="ctrl-instrument">
     <label for="transpose-select">Instrument</label>
     <select id="transpose-select">
       <option value="0">Concert (C)</option>
@@ -278,7 +270,7 @@
     <input type="number" id="custom-semi" value="0" min="-24" max="24" style="width:60px">
   </div>
   <div class="sep"></div>
-  <div class="ctrl">
+  <div class="ctrl" id="ctrl-bars">
     <label for="bars-input">Bars / line</label>
     <input type="number" id="bars-input" value="4" min="1" max="20" style="width:54px">
   </div>
@@ -313,12 +305,12 @@ K:C
 </div>
 
 <script>
-  const abcInput    = document.getElementById('abc-input');
-  const transpSel   = document.getElementById('transpose-select');
-  const customCtrl  = document.getElementById('custom-ctrl');
-  const customSemi  = document.getElementById('custom-semi');
-  const barsInput   = document.getElementById('bars-input');
-  const exportBtn   = document.getElementById('export-btn');
+  const abcInput   = document.getElementById('abc-input');
+  const transpSel  = document.getElementById('transpose-select');
+  const customCtrl = document.getElementById('custom-ctrl');
+  const customSemi = document.getElementById('custom-semi');
+  const barsInput  = document.getElementById('bars-input');
+  const exportBtn  = document.getElementById('export-btn');
 
   function transpose() {
     return transpSel.value === 'custom'
@@ -337,6 +329,108 @@ K:C
     });
   }
 
+  // ── PDF pagination ──────────────────────────────────────
+  // Splits the rendered SVG into page-height slices so the
+  // browser print engine never cuts through a staff row.
+  function buildPrintPages() {
+    const output = document.getElementById('score-output');
+    document.getElementById('print-pages')?.remove();
+
+    const svg = output.querySelector('svg');
+    if (!svg) return;
+
+    const vb = svg.viewBox.baseVal;
+    if (!vb || vb.width === 0) return;
+
+    // A4 with 15mm margins → 180 mm × 267 mm usable area.
+    // SVG fills the 180 mm width, so page height in SVG units:
+    const pageH = vb.width * (267 / 180);
+
+    // Find staff rows – try the class names abcjs 6.x uses
+    let rows = [];
+    for (const sel of ['.abcjs-staff-group', '.abcjs-row', '.abcjs-system']) {
+      rows = [...svg.querySelectorAll(sel)];
+      if (rows.length) break;
+    }
+    if (!rows.length) return;
+
+    // Measure each row's vertical extent
+    const measured = rows.map(r => {
+      const b = r.getBBox();
+      return { top: b.y, bottom: b.y + b.height };
+    }).filter(m => m.bottom > m.top);
+
+    if (!measured.length) return;
+    if (measured.at(-1).bottom <= pageH) return; // fits on one page
+
+    // Group rows into pages
+    const pages = [];
+    let start = 0, batch = [];
+
+    for (const row of measured) {
+      if (row.bottom - start > pageH && batch.length) {
+        pages.push({ startY: start, endY: batch.at(-1).bottom });
+        start = row.top;
+        batch = [row];
+      } else {
+        batch.push(row);
+      }
+    }
+    if (batch.length) pages.push({ startY: start, endY: batch.at(-1).bottom });
+
+    if (pages.length < 2) return;
+
+    // Hide the original SVG for print; we'll restore it in afterprint
+    svg.dataset.printHidden = '1';
+    svg.style.display = 'none';
+
+    const svgHTML    = svg.innerHTML;
+    const container  = document.createElement('div');
+    container.id     = 'print-pages';
+
+    pages.forEach((page, i) => {
+      // Page 1 starts from Y=0 to capture the title/header above the staves
+      const clipY = i === 0 ? 0 : page.startY;
+      const clipH = page.endY - clipY;
+
+      const div = document.createElement('div');
+      div.className = 'print-page';
+      if (i > 0) {
+        div.style.cssText = 'break-before:page;page-break-before:always';
+      }
+
+      const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      s.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      s.setAttribute('viewBox', `${vb.x} ${clipY} ${vb.width} ${clipH}`);
+      s.style.cssText = 'width:100%;height:auto;display:block';
+      s.innerHTML = svgHTML;
+
+      div.appendChild(s);
+      container.appendChild(div);
+    });
+
+    output.appendChild(container);
+  }
+
+  function restoreAfterPrint() {
+    document.getElementById('print-pages')?.remove();
+    const hidden = document.querySelector('#score-output svg[data-print-hidden]');
+    if (hidden) {
+      hidden.style.display = '';
+      delete hidden.dataset.printHidden;
+    }
+  }
+
+  exportBtn.addEventListener('click', () => {
+    buildPrintPages();
+    window.print();
+  });
+
+  // Also handle Ctrl+P / system print
+  window.addEventListener('beforeprint', buildPrintPages);
+  window.addEventListener('afterprint',  restoreAfterPrint);
+
+  // ── Controls ────────────────────────────────────────────
   transpSel.addEventListener('change', () => {
     customCtrl.style.display = transpSel.value === 'custom' ? 'flex' : 'none';
     render();
@@ -345,9 +439,8 @@ K:C
   customSemi.addEventListener('input', render);
   barsInput.addEventListener('input', render);
   abcInput.addEventListener('input', render);
-  exportBtn.addEventListener('click', () => window.print());
 
-  // Tab switching (mobile)
+  // ── Tab switching (mobile) ───────────────────────────────
   document.getElementById('tab-bar').addEventListener('click', e => {
     const btn = e.target.closest('.tab');
     if (!btn) return;
@@ -355,7 +448,6 @@ K:C
     document.querySelectorAll('#main > div').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(btn.dataset.panel).classList.add('active');
-    // Re-render when switching to score so abcjs gets the correct width
     if (btn.dataset.panel === 'score-panel') render();
   });
 
