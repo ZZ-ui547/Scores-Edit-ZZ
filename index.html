@@ -12,7 +12,7 @@
       font-family: system-ui, -apple-system, sans-serif;
       font-size: 13px;
       background: #e4e4e4;
-      height: 100vh;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
       color: #222;
@@ -22,20 +22,23 @@
     #toolbar {
       display: flex;
       align-items: center;
-      gap: 20px;
-      padding: 7px 14px;
+      gap: 16px;
+      padding: 8px 14px;
       background: #fff;
       border-bottom: 1px solid #d4d4d4;
       flex-shrink: 0;
-      flex-wrap: wrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
+    #toolbar::-webkit-scrollbar { display: none; }
 
     #toolbar h1 {
       font-size: 13px;
       font-weight: 600;
       letter-spacing: 0.02em;
       color: #111;
-      margin-right: 4px;
+      white-space: nowrap;
     }
 
     .sep {
@@ -49,6 +52,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
+      flex-shrink: 0;
     }
 
     .ctrl label {
@@ -59,17 +63,18 @@
     select, input[type="number"] {
       border: 1px solid #ccc;
       border-radius: 3px;
-      padding: 3px 6px;
-      font-size: 12px;
+      padding: 4px 6px;
+      font-size: 13px;
       background: #fff;
       color: #222;
+      min-height: 32px;
     }
 
     select:focus, input:focus { outline: 2px solid #bbb; outline-offset: 1px; }
 
     #export-btn {
-      margin-left: auto;
-      padding: 5px 14px;
+      flex-shrink: 0;
+      padding: 6px 14px;
       background: #1a1a1a;
       color: #fff;
       border: none;
@@ -77,9 +82,34 @@
       cursor: pointer;
       font-size: 12px;
       letter-spacing: 0.02em;
+      min-height: 32px;
+      white-space: nowrap;
+    }
+    #export-btn:hover { background: #333; }
+
+    /* ── Tab bar (mobile only) ────────────────────────────── */
+    #tab-bar {
+      display: none;
+      flex-shrink: 0;
+      border-bottom: 1px solid #d4d4d4;
+      background: #fff;
     }
 
-    #export-btn:hover { background: #333; }
+    .tab {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      background: none;
+      font-size: 13px;
+      font-weight: 500;
+      color: #999;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+    .tab.active {
+      color: #111;
+      border-bottom-color: #111;
+    }
 
     /* ── Main layout ──────────────────────────────────────── */
     #main {
@@ -133,7 +163,6 @@
       align-items: flex-start;
     }
 
-    /* A4 page preview */
     #score-page {
       background: #fff;
       box-shadow: 0 1px 6px rgba(0,0,0,0.18);
@@ -148,12 +177,64 @@
       height: auto !important;
     }
 
+    /* ── Mobile ───────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      #tab-bar { display: flex; }
+
+      #main { position: relative; }
+
+      #editor-panel, #score-panel {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        display: none;
+      }
+      #editor-panel.active, #score-panel.active { display: flex; }
+
+      #editor-panel {
+        border-right: none;
+        flex-direction: column;
+      }
+
+      #abc-input {
+        font-size: 14px;
+        padding: 14px;
+      }
+
+      #score-panel {
+        background: #fff;
+        padding: 12px;
+        overflow-y: auto;
+        justify-content: flex-start;
+        align-items: stretch;
+      }
+
+      #score-page {
+        box-shadow: none;
+        padding: 0;
+        width: 100%;
+        min-height: 0;
+      }
+
+      /* Prevent iOS input zoom */
+      select, input[type="number"] {
+        font-size: 16px;
+        min-height: 40px;
+      }
+
+      #export-btn {
+        font-size: 14px;
+        min-height: 40px;
+        padding: 8px 16px;
+      }
+    }
+
     /* ── Print / PDF ──────────────────────────────────────── */
     @media print {
       @page { size: A4 portrait; margin: 15mm; }
 
       body    { background: #fff; height: auto; }
-      #toolbar, #editor-panel { display: none !important; }
+      #toolbar, #editor-panel, #tab-bar { display: none !important; }
       #main   { display: block; overflow: visible; }
 
       #score-panel {
@@ -161,6 +242,8 @@
         padding: 0;
         overflow: visible;
         display: block;
+        position: static;
+        width: 100%;
       }
 
       #score-page {
@@ -178,9 +261,7 @@
 
 <div id="toolbar">
   <h1>Score Editor</h1>
-
   <div class="sep"></div>
-
   <div class="ctrl">
     <label for="transpose-select">Instrument</label>
     <select id="transpose-select">
@@ -191,24 +272,25 @@
       <option value="custom">Custom…</option>
     </select>
   </div>
-
   <div class="ctrl" id="custom-ctrl" style="display:none">
     <label for="custom-semi">Semitones</label>
-    <input type="number" id="custom-semi" value="0" min="-24" max="24" style="width:54px">
+    <input type="number" id="custom-semi" value="0" min="-24" max="24" style="width:60px">
   </div>
-
   <div class="sep"></div>
-
   <div class="ctrl">
     <label for="bars-input">Bars / line</label>
-    <input type="number" id="bars-input" value="4" min="1" max="20" style="width:48px">
+    <input type="number" id="bars-input" value="4" min="1" max="20" style="width:54px">
   </div>
-
   <button id="export-btn">Export PDF</button>
 </div>
 
+<div id="tab-bar">
+  <button class="tab active" data-panel="editor-panel">Editor</button>
+  <button class="tab" data-panel="score-panel">Score</button>
+</div>
+
 <div id="main">
-  <div id="editor-panel">
+  <div id="editor-panel" class="active">
     <div id="editor-label">ABC Notation</div>
     <textarea id="abc-input" spellcheck="false">X:1
 T:Sample Score
@@ -262,8 +344,19 @@ K:C
   customSemi.addEventListener('input', render);
   barsInput.addEventListener('input', render);
   abcInput.addEventListener('input', render);
-
   exportBtn.addEventListener('click', () => window.print());
+
+  // Tab switching (mobile)
+  document.getElementById('tab-bar').addEventListener('click', e => {
+    const btn = e.target.closest('.tab');
+    if (!btn) return;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#main > div').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.panel).classList.add('active');
+    // Re-render when switching to score so abcjs gets the correct width
+    if (btn.dataset.panel === 'score-panel') render();
+  });
 
   render();
 </script>
